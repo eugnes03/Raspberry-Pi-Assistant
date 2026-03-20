@@ -1,0 +1,6 @@
+python-telegram-bot
+arxiv
+openai
+python-dotenv
+psutil
+apscheduler

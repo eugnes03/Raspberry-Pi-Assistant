@@ -1,0 +1,17 @@
+from openai import OpenAI
+from assistant.utils.config import OPENAI_API_KEY
+
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+def summarize(text: str) -> str:
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",  # cheap + good enough
+        messages=[
+            {"role": "system", "content": "Summarize research papers concisely for a math student."},
+            {"role": "user", "content": text}
+        ],
+        max_tokens=150
+    )
+
+    return response.choices[0].message.content.strip()
