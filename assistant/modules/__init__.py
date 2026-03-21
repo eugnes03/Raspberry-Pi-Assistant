@@ -6,3 +6,4 @@ from . import sysinfo
 from . import quotes
 from . import qrcode_gen
 from . import wiki
+from . import saved_papers

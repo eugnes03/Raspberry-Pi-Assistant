@@ -9,7 +9,7 @@ from telegram.ext import (
 
 from assistant.utils.config import TELEGRAM_TOKEN
 from assistant.utils import state, conversation
-from assistant.modules import news, research, sysinfo, scheduler, quotes, qrcode_gen, wiki
+from assistant.modules import news, research, sysinfo, scheduler, quotes, qrcode_gen, wiki, saved_papers
 from assistant.modules import email as email_mod
 from assistant.router import route
 
@@ -44,6 +44,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "Available commands:\n\n"
         "/papers [topic]      — 5 newest arXiv papers (topic or saved list)\n"
+        "/save <url>          — Save an arXiv paper to your library\n"
+        "/saved               — List saved papers\n"
+        "/unsave <# or id>    — Remove a saved paper\n"
         "/summarize <url>     — AI summary of one arXiv paper\n"
         "/ask <question>      — Follow-up on the last summarized paper\n"
         "/settopics t1, t2    — Set your research topics\n"
@@ -222,6 +225,33 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(answer)
 
 
+async def cmd_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _paused_reply(update):
+        return
+    url = ' '.join(context.args).strip()
+    if not url:
+        await update.message.reply_text("Usage: /save <arxiv URL>")
+        return
+    await update.message.reply_text("Fetching paper...")
+    paper = research.get_paper_by_id(url)
+    if paper is None:
+        await update.message.reply_text("Could not find that paper. Check the arXiv URL.")
+        return
+    await update.message.reply_text(saved_papers.save_paper(paper))
+
+
+async def cmd_saved(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(saved_papers.list_papers())
+
+
+async def cmd_unsave(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    arg = ' '.join(context.args).strip()
+    if not arg:
+        await update.message.reply_text("Usage: /unsave <number or arXiv ID>\nSee /saved for the list.")
+        return
+    await update.message.reply_text(saved_papers.remove_paper(arg))
+
+
 # ---------------------------------------------------------------------------
 # Fallback plain-text handler
 # ---------------------------------------------------------------------------
@@ -269,6 +299,9 @@ def run_bot():
     app.add_handler(CommandHandler("wiki",       cmd_wiki))
     app.add_handler(CommandHandler("summarize",  cmd_summarize))
     app.add_handler(CommandHandler("ask",        cmd_ask))
+    app.add_handler(CommandHandler("save",       cmd_save))
+    app.add_handler(CommandHandler("saved",      cmd_saved))
+    app.add_handler(CommandHandler("unsave",     cmd_unsave))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Assistant is running...")
