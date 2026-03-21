@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import arxiv
 from assistant.utils.logger import setup_logger
 
@@ -65,6 +66,29 @@ def format_papers(papers: list[dict], use_llm: bool = False) -> str:
         response += f"  {p['link']}\n\n"
 
     return response.strip()
+
+
+def get_paper_by_id(arxiv_url: str) -> dict | None:
+    """Fetch a single paper from an arXiv URL or bare ID like 2301.12345."""
+    match = re.search(r'(\d{4}\.\d{4,5}(?:v\d+)?)', arxiv_url)
+    if not match:
+        return None
+    arxiv_id = match.group(1)
+    try:
+        client = arxiv.Client()
+        search = arxiv.Search(id_list=[arxiv_id])
+        result = next(client.results(search))
+        return {
+            "title":   result.title,
+            "authors": [a.name for a in result.authors],
+            "summary": result.summary,
+            "link":    result.entry_id,
+        }
+    except StopIteration:
+        return None
+    except Exception as e:
+        logger.error(f"arXiv fetch error: {e}")
+        return None
 
 
 def handle(message: str, use_llm: bool = False) -> str:

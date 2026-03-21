@@ -1,7 +1,7 @@
 import html as html_lib
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram.constants import ParseMode
-from assistant.modules import news, sysinfo, research
+from assistant.modules import news, sysinfo, research, quotes
 from assistant.utils import state
 from assistant.utils.logger import setup_logger
 
@@ -39,7 +39,13 @@ async def _send_all(text: str):
 
 async def daily_digest():
     logger.info("Running daily digest")
-    await _send_all("Good morning! Here is your Daily Digest")
+    q = quotes.get_quote()
+    header = (
+        f"Good morning! Here is your Daily Digest\n\n"
+        f'<i>"{html_lib.escape(q["text"])}"</i>\n'
+        f"— {html_lib.escape(q['author'])}"
+    )
+    await _send_all(header)
 
     # News — one message per category
     for category in ['world', 'tech', 'science']:

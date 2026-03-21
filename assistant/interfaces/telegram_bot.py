@@ -8,8 +8,8 @@ from telegram.ext import (
 )
 
 from assistant.utils.config import TELEGRAM_TOKEN
-from assistant.utils import state
-from assistant.modules import news, research, sysinfo, scheduler
+from assistant.utils import state, conversation
+from assistant.modules import news, research, sysinfo, scheduler, quotes, qrcode_gen, wiki
 from assistant.modules import email as email_mod
 from assistant.router import route
 
@@ -43,18 +43,23 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "Available commands:\n\n"
-        "/papers [topic]     — 5 newest arXiv papers (topic or saved list)\n"
-        "/settopics t1, t2   — Set your research topics\n"
-        "/topics             — Show current research topics\n"
-        "/news [category]    — Headlines (world, tech, science, us, business)\n"
-        "/inbox              — Check unread emails\n"
-        "/send to sub body   — Send an email\n"
-        "/sysinfo            — CPU / RAM / disk / temp\n"
-        "/digest             — Trigger the daily digest now\n"
-        "/pause              — Manually pause the bot\n"
-        "/resume             — Resume the bot\n"
-        "/status             — Show pause state + system info\n"
-        "/help               — This message"
+        "/papers [topic]      — 5 newest arXiv papers (topic or saved list)\n"
+        "/summarize <url>     — AI summary of one arXiv paper\n"
+        "/ask <question>      — Follow-up on the last summarized paper\n"
+        "/settopics t1, t2    — Set your research topics\n"
+        "/topics              — Show current research topics\n"
+        "/news [category]     — Headlines (world, tech, science, us, business)\n"
+        "/wiki <query>        — Wikipedia summary\n"
+        "/quote               — Random philosophy quote\n"
+        "/qr <text or url>    — Generate a QR code image\n"
+        "/inbox               — Check unread emails\n"
+        "/send to sub body    — Send an email\n"
+        "/sysinfo             — CPU / RAM / disk / temp\n"
+        "/digest              — Trigger the daily digest now\n"
+        "/pause               — Manually pause the bot\n"
+        "/resume              — Resume the bot\n"
+        "/status              — Show pause state + system info\n"
+        "/help                — This message"
     )
     await update.message.reply_text(text)
 
@@ -140,6 +145,83 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Status: {status}\n\n" + sysinfo.handle())
 
 
+async def cmd_quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(quotes.format_quote())
+
+
+async def cmd_qr(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _paused_reply(update):
+        return
+    data = ' '.join(context.args).strip()
+    if not data:
+        await update.message.reply_text("Usage: /qr <text or URL>")
+        return
+    buf = qrcode_gen.generate(data)
+    if buf is None:
+        await update.message.reply_text("Failed to generate QR code. Make sure qrcode[pil] is installed.")
+        return
+    await update.message.reply_photo(photo=buf, caption=data)
+
+
+async def cmd_wiki(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _paused_reply(update):
+        return
+    query = ' '.join(context.args).strip()
+    if not query:
+        await update.message.reply_text("Usage: /wiki <search term>")
+        return
+    await update.message.reply_text("Searching Wikipedia...")
+    result = wiki.search(query)
+    await update.message.reply_text(result)
+
+
+async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _paused_reply(update):
+        return
+    url = ' '.join(context.args).strip()
+    if not url:
+        await update.message.reply_text("Usage: /summarize <arxiv URL>\nExample: /summarize https://arxiv.org/abs/2301.12345")
+        return
+    from assistant.utils.config import OPENAI_API_KEY
+    if not OPENAI_API_KEY:
+        await update.message.reply_text("OpenAI API key not set. Add OPENAI_API_KEY to your .env file.")
+        return
+    await update.message.reply_text("Fetching paper...")
+    paper = research.get_paper_by_id(url)
+    if paper is None:
+        await update.message.reply_text("Could not find that paper. Make sure the URL contains a valid arXiv ID (e.g. 2301.12345).")
+        return
+    await update.message.reply_text("Summarizing...")
+    try:
+        from assistant.utils.openai_client import start_paper_thread
+        thread_id, summary = start_paper_thread(paper["summary"])
+    except Exception as e:
+        await update.message.reply_text(f"OpenAI error: {e}")
+        return
+    conversation.set_thread(update.effective_chat.id, thread_id)
+    await update.message.reply_text(f"{summary}\n\nUse /ask <question> to ask about theorems, proofs, or concepts in this paper.")
+
+
+async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _paused_reply(update):
+        return
+    question = ' '.join(context.args).strip()
+    if not question:
+        await update.message.reply_text("Usage: /ask <question>\nExample: /ask What theorem does this paper prove?")
+        return
+    thread_id = conversation.get_thread(update.effective_chat.id)
+    if not thread_id:
+        await update.message.reply_text("No active paper session. Use /summarize <arxiv URL> first.")
+        return
+    try:
+        from assistant.utils.openai_client import ask_thread
+        answer = ask_thread(thread_id, question)
+    except Exception as e:
+        await update.message.reply_text(f"OpenAI error: {e}")
+        return
+    await update.message.reply_text(answer)
+
+
 # ---------------------------------------------------------------------------
 # Fallback plain-text handler
 # ---------------------------------------------------------------------------
@@ -182,6 +264,11 @@ def run_bot():
     app.add_handler(CommandHandler("pause",      cmd_pause))
     app.add_handler(CommandHandler("resume",     cmd_resume))
     app.add_handler(CommandHandler("status",     cmd_status))
+    app.add_handler(CommandHandler("quote",      cmd_quote))
+    app.add_handler(CommandHandler("qr",         cmd_qr))
+    app.add_handler(CommandHandler("wiki",       cmd_wiki))
+    app.add_handler(CommandHandler("summarize",  cmd_summarize))
+    app.add_handler(CommandHandler("ask",        cmd_ask))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Assistant is running...")
