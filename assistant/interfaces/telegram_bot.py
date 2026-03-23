@@ -43,11 +43,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "Available commands:\n\n"
-        "/papers [topic]      — 5 newest arXiv papers (topic or saved list)\n"
+        "/papers [topic/cat]  — 5 newest arXiv papers (topic, category like math.AG, or saved list)\n"
         "/save <url>          — Save an arXiv paper to your library\n"
         "/saved               — List saved papers\n"
         "/unsave <# or id>    — Remove a saved paper\n"
-        "/summarize <url>     — AI summary of one arXiv paper\n"
+        "/abstract <url>      — Raw abstract of one arXiv paper (no AI)\n"
+        "/summarize <url>     — AI summary of one arXiv paper (uses full HTML when available)\n"
         "/ask <question>      — Follow-up on the last summarized paper\n"
         "/settopics t1, t2    — Set your research topics\n"
         "/topics              — Show current research topics\n"
@@ -194,15 +195,36 @@ async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if paper is None:
         await update.message.reply_text("Could not find that paper. Make sure the URL contains a valid arXiv ID (e.g. 2301.12345).")
         return
-    await update.message.reply_text("Summarizing...")
+    # Try to get full HTML text; fall back to abstract
+    full_text = research.fetch_paper_full_text(paper["arxiv_id"])
+    is_full = full_text is not None
+    content = full_text if is_full else paper["summary"]
+    await update.message.reply_text("Summarizing" + (" full paper..." if is_full else " abstract (HTML version unavailable)..."))
     try:
         from assistant.utils.openai_client import start_paper_thread
-        thread_id, summary = start_paper_thread(paper["summary"])
+        thread_id, summary = start_paper_thread(content, is_full_text=is_full)
     except Exception as e:
         await update.message.reply_text(f"OpenAI error: {e}")
         return
     conversation.set_thread(update.effective_chat.id, thread_id)
     await update.message.reply_text(f"{summary}\n\nUse /ask <question> to ask about theorems, proofs, or concepts in this paper.")
+
+
+async def cmd_abstract(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _paused_reply(update):
+        return
+    url = ' '.join(context.args).strip()
+    if not url:
+        await update.message.reply_text("Usage: /abstract <arxiv URL>\nExample: /abstract https://arxiv.org/abs/2301.12345")
+        return
+    await update.message.reply_text("Fetching paper...")
+    paper = research.get_paper_by_id(url)
+    if paper is None:
+        await update.message.reply_text("Could not find that paper. Make sure the URL contains a valid arXiv ID.")
+        return
+    authors = ', '.join(paper['authors'][:3])
+    text = f"{paper['title']}\n{authors}\n\n{paper['summary']}\n\n{paper['link']}"
+    await update.message.reply_text(text)
 
 
 async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -297,6 +319,7 @@ def run_bot():
     app.add_handler(CommandHandler("quote",      cmd_quote))
     app.add_handler(CommandHandler("qr",         cmd_qr))
     app.add_handler(CommandHandler("wiki",       cmd_wiki))
+    app.add_handler(CommandHandler("abstract",   cmd_abstract))
     app.add_handler(CommandHandler("summarize",  cmd_summarize))
     app.add_handler(CommandHandler("ask",        cmd_ask))
     app.add_handler(CommandHandler("save",       cmd_save))

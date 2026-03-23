@@ -6,3 +6,5 @@ psutil
 apscheduler
 qrcode[pil]
 wikipedia
+requests
+beautifulsoup4

@@ -48,16 +48,18 @@ def _run_and_wait(thread_id: str) -> str:
     return messages.data[0].content[0].text.value
 
 
-def start_paper_thread(abstract: str) -> tuple[str, str]:
+def start_paper_thread(text: str, is_full_text: bool = False) -> tuple[str, str]:
     """
-    Create a new thread seeded with the paper abstract.
+    Create a new thread seeded with the paper content.
+    Pass is_full_text=True when text is the full article body (not just the abstract).
     Returns (thread_id, summary_text).
     """
+    label = "full text" if is_full_text else "abstract"
     thread = client.beta.threads.create()
     client.beta.threads.messages.create(
         thread_id=thread.id,
         role="user",
-        content=f"Here is the abstract of the paper I want to discuss:\n\n{abstract}\n\nGive me a concise summary.",
+        content=f"Here is the {label} of the paper I want to discuss:\n\n{text}\n\nGive me a concise summary.",
     )
     summary = _run_and_wait(thread.id)
     return thread.id, summary
