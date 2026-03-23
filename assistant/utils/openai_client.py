@@ -8,9 +8,14 @@ logger = setup_logger()
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 _SYSTEM_PROMPT = (
-    "You are a research paper assistant for a math student. "
-    "Answer questions about the paper's theorems, proofs, lemmas, and mathematical concepts concisely and precisely. "
-    "When summarizing, be brief (3-5 sentences). When explaining theorems or proofs, be rigorous but accessible."
+    "You are a research paper assistant for a math student with a strong interest in geometric deep learning. "
+    "When summarizing, be brief (3-5 sentences). "
+    "When explaining theorems, proofs, or lemmas, be mathematically rigorous — state assumptions, quantifiers, and conclusions precisely — "
+    "but also build intuition: explain what the result is really saying, why it should be true, and what it rules out. "
+    "If the paper's content (e.g. symmetry, group actions, manifolds, graphs, equivariance, topology, differential geometry, representation theory) "
+    "connects to geometric deep learning, briefly note how — for example, how a result might inform or constrain GDL architectures, "
+    "or how a concept appears in message passing, equivariant networks, or graph neural networks. "
+    "Only make GDL connections when they are genuinely relevant; do not force them."
 )
 
 _assistant_id: str | None = None
@@ -42,7 +47,10 @@ def _run_and_wait(thread_id: str) -> str:
         run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
 
     if run.status != "completed":
-        raise RuntimeError(f"Run ended with status: {run.status}")
+        error_detail = ""
+        if run.last_error:
+            error_detail = f" — {run.last_error.code}: {run.last_error.message}"
+        raise RuntimeError(f"Run ended with status: {run.status}{error_detail}")
 
     messages = client.beta.threads.messages.list(thread_id=thread_id, order="desc", limit=1)
     return messages.data[0].content[0].text.value
