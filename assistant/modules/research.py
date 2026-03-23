@@ -41,7 +41,7 @@ def is_category(query: str) -> bool:
     return ' ' not in q and bool(_CATEGORY_RE.match(q))
 
 
-def get_papers(query: str, max_results: int = 5) -> list[dict]:
+def get_papers(query: str, max_results: int = 5, offset: int = 0) -> list[dict]:
     """Search arXiv. If query is a category code, list newest papers in that category."""
     if is_category(query):
         arxiv_query = f"cat:{query}"
@@ -52,8 +52,9 @@ def get_papers(query: str, max_results: int = 5) -> list[dict]:
         max_results=max_results,
         sort_by=arxiv.SortCriterion.SubmittedDate,
     )
+    client = arxiv.Client()
     results = []
-    for result in search.results():
+    for result in client.results(search, offset=offset):
         results.append({
             "title":    result.title,
             "authors":  [a.name for a in result.authors],

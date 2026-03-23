@@ -48,3 +48,18 @@ def resume():
 
 def get_pause_reason() -> str:
     return _pause_reason
+
+
+# ---------------------------------------------------------------------------
+# Papers pagination state (in-memory, per chat)
+# ---------------------------------------------------------------------------
+
+_papers_sessions: dict = {}  # chat_id -> {"query": str, "offset": int}
+
+
+def set_papers_session(chat_id: int, query: str, offset: int):
+    _papers_sessions[chat_id] = {"query": query, "offset": offset}
+
+
+def get_papers_session(chat_id: int) -> dict | None:
+    return _papers_sessions.get(chat_id)

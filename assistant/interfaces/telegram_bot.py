@@ -44,6 +44,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "Available commands:\n\n"
         "/papers [topic/cat]  — 5 newest arXiv papers (topic, category like math.AG, or saved list)\n"
+        "/more                — Next 5 papers from the last /papers search\n"
         "/save <url>          — Save an arXiv paper to your library\n"
         "/saved               — List saved papers\n"
         "/unsave <# or id>    — Remove a saved paper\n"
@@ -71,20 +72,56 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_papers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await _paused_reply(update):
         return
+    chat_id = update.effective_chat.id
     query = ' '.join(context.args).strip()
+    PAGE = 5
+    has_more = False
+
     if query:
-        response = research.handle(query)
+        papers = research.get_papers(query, max_results=PAGE, offset=0)
+        response = research.format_papers(papers)
+        if papers:
+            state.set_papers_session(chat_id, query, PAGE)
+            has_more = True
     else:
         topics = research.load_topics()
         if not topics:
             response = "No topics saved and no query given.\nUse /settopics or /papers <topic>."
         else:
+            # Paginate on the first topic; show the rest at offset 0 only
+            topic = topics[0]
+            papers = research.get_papers(topic, max_results=PAGE, offset=0)
             parts = []
-            for topic in topics:
-                papers = research.get_papers(topic, max_results=5)
-                if papers:
-                    parts.append(f"[{topic.upper()}]\n" + research.format_papers(papers))
+            if papers:
+                parts.append(f"[{topic.upper()}]\n" + research.format_papers(papers))
+                state.set_papers_session(chat_id, topic, PAGE)
+                has_more = True
+            for t in topics[1:]:
+                p = research.get_papers(t, max_results=PAGE, offset=0)
+                if p:
+                    parts.append(f"[{t.upper()}]\n" + research.format_papers(p))
             response = '\n\n'.join(parts) if parts else "No papers found."
+
+    if has_more:
+        response += "\n\nUse /more to see the next 5."
+    await update.message.reply_text(response)
+
+
+async def cmd_more(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _paused_reply(update):
+        return
+    chat_id = update.effective_chat.id
+    session = state.get_papers_session(chat_id)
+    if not session:
+        await update.message.reply_text("No active search. Use /papers <topic> first.")
+        return
+    PAGE = 5
+    papers = research.get_papers(session["query"], max_results=PAGE, offset=session["offset"])
+    if not papers:
+        await update.message.reply_text("No more papers found for this search.")
+        return
+    state.set_papers_session(chat_id, session["query"], session["offset"] + PAGE)
+    response = research.format_papers(papers) + "\n\nUse /more to see the next 5."
     await update.message.reply_text(response)
 
 
@@ -306,6 +343,7 @@ def run_bot():
     app.add_handler(CommandHandler("start",      cmd_start))
     app.add_handler(CommandHandler("help",       cmd_help))
     app.add_handler(CommandHandler("papers",     cmd_papers))
+    app.add_handler(CommandHandler("more",       cmd_more))
     app.add_handler(CommandHandler("settopics",  cmd_settopics))
     app.add_handler(CommandHandler("topics",     cmd_topics))
     app.add_handler(CommandHandler("news",       cmd_news))
